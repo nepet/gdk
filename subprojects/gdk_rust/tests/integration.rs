@@ -2,7 +2,7 @@ use electrum_client::ElectrumApi;
 use gdk_common::be::BETransaction;
 use gdk_common::model::{
     AddressAmount, CreateAccountOpt, CreateTransaction, GetBalanceOpt, GetNextAccountOpt,
-    RefreshAssets, RenameAccountOpt, SPVVerifyResult, UpdateAccountOpt,
+    GetUnspentOutputs, RefreshAssets, RenameAccountOpt, SPVVerifyResult, UpdateAccountOpt,
 };
 use gdk_common::scripts::ScriptType;
 use gdk_common::session::Session;
@@ -149,18 +149,46 @@ fn create_tx_err(is_liquid: bool) {
     let sat = 1000;
 
     // Amount 0
-    let mut create_opt = test_session.create_opt(&addr, 0, asset_id.clone(), fee_rate, subaccount);
+    let mut create_opt = test_session.create_opt(
+        &addr,
+        0,
+        asset_id.clone(),
+        fee_rate,
+        subaccount,
+        test_session.utxos(0),
+    );
     assert!(matches!(
         test_session.session.create_transaction(&mut create_opt),
         Err(Error::InvalidAmount)
     ));
 
     // Amount below dust
-    let mut create_opt =
-        test_session.create_opt(&addr, 200, asset_id.clone(), fee_rate, subaccount);
+    let mut create_opt = test_session.create_opt(
+        &addr,
+        200,
+        asset_id.clone(),
+        fee_rate,
+        subaccount,
+        test_session.utxos(0),
+    );
     assert!(matches!(
         test_session.session.create_transaction(&mut create_opt),
         Err(Error::InvalidAmount)
+    ));
+
+    // No utxos passed
+    let mut create_opt = test_session.create_opt(
+        &addr,
+        sat,
+        asset_id.clone(),
+        fee_rate,
+        subaccount,
+        GetUnspentOutputs::default(),
+    );
+    assert!(create_opt.utxos.0.iter().all(|(_, v)| v.len() == 0));
+    assert!(matches!(
+        test_session.session.create_transaction(&mut create_opt),
+        Err(Error::InsufficientFunds)
     ));
 
     // Not enough to pay the fee
@@ -168,15 +196,22 @@ fn create_tx_err(is_liquid: bool) {
     let wallet_address = test_session.get_receive_address(0).address;
     let txid = test_session.node_sendtoaddress(&wallet_address, wallet_sat, None);
     test_session.wait_account_tx(0, &txid);
-    let mut create_opt =
-        test_session.create_opt(&addr, wallet_sat, asset_id.clone(), fee_rate, subaccount);
+    let mut create_opt = test_session.create_opt(
+        &addr,
+        wallet_sat,
+        asset_id.clone(),
+        fee_rate,
+        subaccount,
+        test_session.utxos(0),
+    );
     assert!(matches!(
         test_session.session.create_transaction(&mut create_opt),
         Err(Error::InsufficientFunds)
     ));
 
     // Invalid subaccount
-    let mut create_opt = test_session.create_opt(&addr, sat, asset_id.clone(), fee_rate, 99);
+    let mut create_opt =
+        test_session.create_opt(&addr, sat, asset_id.clone(), fee_rate, 99, test_session.utxos(0));
     assert!(matches!(
         test_session.session.create_transaction(&mut create_opt),
         Err(Error::InvalidSubaccount(_))
@@ -191,7 +226,14 @@ fn create_tx_err(is_liquid: bool) {
     ));
 
     // Not an address
-    let mut create_opt = test_session.create_opt(&"x", sat, asset_id.clone(), fee_rate, subaccount);
+    let mut create_opt = test_session.create_opt(
+        &"x",
+        sat,
+        asset_id.clone(),
+        fee_rate,
+        subaccount,
+        test_session.utxos(0),
+    );
     assert!(matches!(
         test_session.session.create_transaction(&mut create_opt),
         Err(Error::InvalidAddress)
@@ -205,8 +247,14 @@ fn create_tx_err(is_liquid: bool) {
         // regtest liquid
         "AzpwMmJacz8ngdJszGjNeNBeQ2iu5qNYWpZfkqBoZU6acK6tSbEdpt9PsWdRtcb2pxAQcdTySE4KmhJk"
     };
-    let mut create_opt =
-        test_session.create_opt(&wrong_net_addr, sat, asset_id.clone(), fee_rate, subaccount);
+    let mut create_opt = test_session.create_opt(
+        &wrong_net_addr,
+        sat,
+        asset_id.clone(),
+        fee_rate,
+        subaccount,
+        test_session.utxos(0),
+    );
     assert!(matches!(
         test_session.session.create_transaction(&mut create_opt),
         Err(Error::InvalidAddress)
@@ -217,8 +265,14 @@ fn create_tx_err(is_liquid: bool) {
     } else {
         "38CMdevthTKYAtxaSkYYtcv5QgkHXdKKk5"
     };
-    let mut create_opt =
-        test_session.create_opt(&mainnet_addr, sat, asset_id.clone(), fee_rate, subaccount);
+    let mut create_opt = test_session.create_opt(
+        &mainnet_addr,
+        sat,
+        asset_id.clone(),
+        fee_rate,
+        subaccount,
+        test_session.utxos(0),
+    );
     assert!(matches!(
         test_session.session.create_transaction(&mut create_opt),
         Err(Error::InvalidAddress)
@@ -230,8 +284,14 @@ fn create_tx_err(is_liquid: bool) {
     } else {
         "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqdmchcc"
     };
-    let mut create_opt =
-        test_session.create_opt(&segwitv1_addr, sat, asset_id.clone(), fee_rate, subaccount);
+    let mut create_opt = test_session.create_opt(
+        &segwitv1_addr,
+        sat,
+        asset_id.clone(),
+        fee_rate,
+        subaccount,
+        test_session.utxos(0),
+    );
     assert!(matches!(
         test_session.session.create_transaction(&mut create_opt),
         Err(Error::InvalidAddress)
@@ -243,8 +303,14 @@ fn create_tx_err(is_liquid: bool) {
     } else {
         "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"
     };
-    let mut create_opt =
-        test_session.create_opt(&segwitv1_addr, sat, asset_id.clone(), fee_rate, subaccount);
+    let mut create_opt = test_session.create_opt(
+        &segwitv1_addr,
+        sat,
+        asset_id.clone(),
+        fee_rate,
+        subaccount,
+        test_session.utxos(0),
+    );
     assert!(matches!(
         test_session.session.create_transaction(&mut create_opt),
         Err(Error::InvalidAddress)
@@ -253,8 +319,14 @@ fn create_tx_err(is_liquid: bool) {
     // Unblinded
     if is_liquid {
         let unconf_addr = test_session::to_unconfidential(&addr);
-        let mut create_opt =
-            test_session.create_opt(&unconf_addr, sat, asset_id.clone(), fee_rate, subaccount);
+        let mut create_opt = test_session.create_opt(
+            &unconf_addr,
+            sat,
+            asset_id.clone(),
+            fee_rate,
+            subaccount,
+            test_session.utxos(0),
+        );
         assert!(matches!(
             test_session.session.create_transaction(&mut create_opt),
             Err(Error::NonConfidentialAddress)
@@ -262,8 +334,14 @@ fn create_tx_err(is_liquid: bool) {
     }
 
     // EmptyAddressees
-    let mut create_opt =
-        test_session.create_opt(&addr, sat, asset_id.clone(), fee_rate, subaccount);
+    let mut create_opt = test_session.create_opt(
+        &addr,
+        sat,
+        asset_id.clone(),
+        fee_rate,
+        subaccount,
+        test_session.utxos(0),
+    );
     create_opt.addressees.clear();
     assert!(matches!(
         test_session.session.create_transaction(&mut create_opt),
@@ -563,6 +641,7 @@ fn labels() {
         satoshi: 50000,
         asset_id: None,
     });
+    create_opt.utxos = test_session.utxos(create_opt.subaccount);
     create_opt.memo = Some("Foo, Bar Foo".into());
     let tx = test_session.session.create_transaction(&mut create_opt).unwrap();
     let signed_tx = test_session.session.sign_transaction(&tx).unwrap();
@@ -608,6 +687,7 @@ fn rbf() {
         satoshi: 50000,
         asset_id: None,
     });
+    create_opt.utxos = test_session.utxos(create_opt.subaccount);
     create_opt.fee_rate = Some(25000);
     create_opt.memo = Some("poz qux".into());
     let tx = test_session.session.create_transaction(&mut create_opt).unwrap();
